@@ -9,6 +9,7 @@ import io.vertx.ext.sql.ResultSet;
 import io.vertx.ext.sql.SQLConnection;
 
 import java.io.IOException;
+import java.io.PrintStream;
 import java.util.*;
 
 
@@ -16,20 +17,15 @@ public class MyFirstVerticle extends AbstractVerticle {
 
     private Vertx vertx = Vertx.vertx();
     private EventBus eb = vertx.eventBus();
-    private Queue<String> flowBuffer = new LinkedList<>();
-    private static final int MAX_SIZE = 10;
-
+    private Random random = new Random();
     private JDBCClient jdbc;
     {
         JsonObject config = new JsonObject().put("url", "jdbc:hsqldb:mem:test?shutdown=true")
                 .put("driver_class", "org.hsqldb.jdbcDriver");
         jdbc = JDBCClient.createNonShared(vertx, config);
-
-
     }
 
-    public void start(Future<Void> fut) {
-        createTable();
+    public void start(Future<Void> fut) throws IOException, InterruptedException {
 
         vertx.createHttpServer().requestHandler(r -> {
             jdbc.getConnection(res -> {
@@ -62,31 +58,50 @@ public class MyFirstVerticle extends AbstractVerticle {
                     eb.publish("device.free", deviceName);
                 }
                 JsonObject jobRow = resultSet.getRows().get(0);
-                List<String> instructions = new ArrayList<>(Arrays.asList(jobRow.getString("case").split(";")));
+                ArrayList<String> instructions = new ArrayList<>(Arrays.asList(jobRow.getString("SCENARIO_TEXT").split(";")));
                 executeInstructions(instructions, deviceName);
 
             };
 
             Handler<AsyncResult<SQLConnection>> getReservedJob = connectionResult -> {
                 SQLConnection connection = connectionResult.result();
-                String query = "select * from job, case where state = 1 and acquired_by = ? and job.case_id = case.case_id limit 1";
-                JsonArray params = new JsonArray().add(0).add(deviceName);
+                String query = "select * from job, scenario where state = 1 and acquired_by = ? and job.scenario_id = scenario.scenario_id limit 1";
+                JsonArray params = new JsonArray().add(deviceName);
                 connection.queryWithParams(query, params, jobHandler);
                 connection.close();
             };
 
             Handler<AsyncResult<SQLConnection>> reserveJob = connectionResult -> {
                 SQLConnection connection = connectionResult.result();
-                String query = "update job set state = 1 and acquired_by = '" + deviceName + "' where (acc_id, case_id) in " +
-                        "(select acc_id, case_id from job where state = 0 limit 1)";
-                connection.execute(query, ignored -> {
-                    jdbc.getConnection(getReservedJob);
-                });
+                String query = "update job set state = 1, acquired_by = '" + deviceName + "' where  " +
+                        "state = 0 and ROWNUM() <= 1";
+                connection.update(query, ignored -> jdbc.getConnection(getReservedJob));
                 connection.close();
             };
 
+            Handler<AsyncResult<SQLConnection>> createSampleData = connectionResult -> {
+                SQLConnection connection = connectionResult.result();
 
-            jdbc.getConnection(reserveJob);
+                List<String> batch = new ArrayList<>();
+                batch.add("CREATE TABLE IF NOT EXISTS scenario(scenario_id INTEGER, scenario_text CLOB(300))");
+                batch.add("CREATE TABLE IF NOT EXISTS job(acc_id INTEGER, " +
+                                "                  scenario_id INTEGER," +
+                                "                  state INTEGER," +
+                                "                  acquired_by VARCHAR(30))");
+                batch.add("INSERT INTO scenario (scenario_id, scenario_text) VALUES (1, 'sleep 1;sleep 2')");
+                batch.add("INSERT INTO scenario (scenario_id, scenario_text) VALUES (2, 'sleep 1;')");
+                batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (1,1,0,'')");
+                batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (1,2,0,'')");
+                batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (2,1,0,'')");
+                batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (2,2,0,'')");
+                batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (3,1,0,'')");
+                batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (3,2,0,'')");
+                connection.batch(batch, ignored -> jdbc.getConnection(reserveJob));
+
+                connection.close();
+            };
+
+            jdbc.getConnection(createSampleData);
         });
 
         System.out.println("verticle mfv has started");
@@ -98,42 +113,45 @@ public class MyFirstVerticle extends AbstractVerticle {
 
     }
 
-    private void createTable() {
-        jdbc.getConnection(res -> {
-            if (res.succeeded()) {
-
-                SQLConnection connection = res.result();
-
-                connection.execute("CREATE TABLE case(case_id INTEGER, case_text CLOB(300))", null)
-                    .execute("CREATE TABLE job(acc_id INTEGER, " +
-                            "                  case_id INTEGER," +
-                            "                  state INTEGER" +
-                            "                  acquired_by VARCHAR(30))", null)
-                        .execute("INSERT INTO case (case_id, case_text) VALUES (1, 'sleep 1; sleep 2')", null)
-                        .execute("INSERT INTO case (case_id, case_text) VALUES (2, 'sleep 1;')", null)
-                        .execute("INSERT INTO job (acc_id, case_id, state, acquired_by) VALUES (1,1,0,'')", null)
-                        .execute("INSERT INTO job (acc_id, case_id, state, acquired_by) VALUES (1,2,0,'')", null)
-                        .execute("INSERT INTO job (acc_id, case_id, state, acquired_by) VALUES (2,1,0,'')", null)
-                        .execute("INSERT INTO job (acc_id, case_id, state, acquired_by) VALUES (2,2,0,'')", null)
-                        .execute("INSERT INTO job (acc_id, case_id, state, acquired_by) VALUES (3,1,0,'')", null)
-                        .execute("INSERT INTO job (acc_id, case_id, state, acquired_by) VALUES (3,2,0,'')", null);
-                connection.close();
-            } else {}
-        });
-    }
-
-    private void executeInstructions(List<String> instructions, String deviceName) {
+    private void executeInstructions(ArrayList<String> instructions, String deviceName) {
         if (instructions.isEmpty()) { return; }
 
-        vertx.executeBlocking(f -> { try {
-                ProcessBuilder pb = new ProcessBuilder(instructions.get(0));
+        Handler<Future<Object>> instructionHandler = f -> {
+            Logger logger = new Logger(random.nextInt(), System.out);
+            try {
+                logger.log("start to execute: ");
+                for (String s : instructions.get(0).split(" ")) {
+                    logger.log(s);
+                }
+                ProcessBuilder pb = new ProcessBuilder(instructions.get(0).split(" "));
                 final Process blockingIO = pb.start();
                 blockingIO.waitFor();
-            } catch (IOException | InterruptedException ignored) {}},
-            r -> {
+                logger.log("executed successfully ");
+            } catch (IOException | InterruptedException e) {
+                logger.log("exception at ");
+                e.printStackTrace();
+            } finally {
                 instructions.remove(0);
-                executeInstructions(instructions, deviceName);
+                f.complete(instructions);
             }
-        );
+        };
+
+        Handler<AsyncResult<Object>> schedulingHandler = instructionResult -> {
+            executeInstructions((ArrayList<String>) instructionResult.result(), deviceName);
+        };
+
+        vertx.executeBlocking(instructionHandler, schedulingHandler);
+    }
+
+    private class Logger {
+        private int id;
+        private PrintStream ps;
+        public Logger(int id, PrintStream ps) {
+            this.id = id;
+            this.ps = ps;
+        }
+        public void log(String s) {
+            ps.println(id + ": " + s);
+        }
     }
 }
