@@ -16,6 +16,9 @@ import java.util.*;
 
 public class MyFirstVerticle extends AbstractVerticle {
 
+    public static final String QUEUE_DEVICE_FREE_NAME = "device.free";
+    public static final String ACC_ID = "ACC_ID";
+    public static final String SCENARIO_ID = "SCENARIO_ID";
     private Vertx vertx = Vertx.vertx();
     private EventBus eb = vertx.eventBus();
     private Random random = new Random();
@@ -49,18 +52,18 @@ public class MyFirstVerticle extends AbstractVerticle {
             }
         });
 
-        eb.consumer("device.free", message -> {
+        eb.consumer(QUEUE_DEVICE_FREE_NAME, message -> {
             String deviceName = (String) message.body();
 
             Handler<AsyncResult<ResultSet>> jobHandler = jobQueryResult -> {
                 ResultSet resultSet = jobQueryResult.result();
                 if (resultSet.getNumRows() == 0) {
-                    eb.publish("device.free", deviceName);
+                    eb.publish(QUEUE_DEVICE_FREE_NAME, deviceName);
                     return;
                 }
                 JsonObject jobRow = resultSet.getRows().get(0);
-                JsonObject params = new JsonObject().put("ACC_ID", jobRow.getValue("ACC_ID"))
-                                                    .put("SCENARIO_ID", jobRow.getValue("SCENARIO_ID"));
+                JsonObject params = new JsonObject().put(ACC_ID, jobRow.getValue(ACC_ID))
+                                                    .put(SCENARIO_ID, jobRow.getValue(SCENARIO_ID));
                 ArrayList<String> instructions = new ArrayList<>(Arrays.asList(jobRow.getString("SCENARIO_TEXT").split(";")));
                 executeInstructions(instructions, deviceName, params);
             };
@@ -89,7 +92,7 @@ public class MyFirstVerticle extends AbstractVerticle {
         Handler<AsyncResult<List<Integer>>> initialSendDevices = ignored -> {
             List<String> devices = Arrays.asList("qwerty", "asdf", "1234");
             devices.forEach(device -> {
-                eb.publish("device.free", device);
+                eb.publish(QUEUE_DEVICE_FREE_NAME, device);
             });
         };
 
@@ -97,19 +100,19 @@ public class MyFirstVerticle extends AbstractVerticle {
             SQLConnection connection = connectionResult.result();
 
             List<String> batch = new ArrayList<>();
-            batch.add("CREATE TABLE IF NOT EXISTS scenario(scenario_id INTEGER, scenario_text CLOB(300))");
-            batch.add("CREATE TABLE IF NOT EXISTS job(acc_id INTEGER, " +
-                    "                  scenario_id INTEGER," +
-                    "                  state INTEGER," +
-                    "                  acquired_by VARCHAR(30))");
-            batch.add("INSERT INTO scenario (scenario_id, scenario_text) VALUES (1, 'sleep 1;sleep 2')");
-            batch.add("INSERT INTO scenario (scenario_id, scenario_text) VALUES (2, 'sleep 1;')");
-            batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (1,1,0,'')");
-            batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (1,2,0,'')");
-            batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (2,1,0,'')");
-            batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (2,2,0,'')");
-            batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (3,1,0,'')");
-            batch.add("INSERT INTO job (acc_id, scenario_id, state, acquired_by) VALUES (3,2,0,'')");
+            batch.add("CREATE TABLE IF NOT EXISTS scenario(SCENARIO_ID INTEGER, SCENARIO_TEXT CLOB(300))");
+            batch.add("CREATE TABLE IF NOT EXISTS job(ACC_ID INTEGER, " +
+                    "                  SCENARIO_ID INTEGER," +
+                    "                  STATE INTEGER," +
+                    "                  ACQUIRED_BY VARCHAR(30))");
+            batch.add("INSERT INTO scenario (SCENARIO_ID, SCENARIO_TEXT) VALUES (1, 'sleep 1;sleep 2')");
+            batch.add("INSERT INTO scenario (SCENARIO_ID, SCENARIO_TEXT) VALUES (2, 'sleep 1;')");
+            batch.add("INSERT INTO job (ACC_ID, SCENARIO_ID, STATE, ACQUIRED_BY) VALUES (1,1,0,'')");
+            batch.add("INSERT INTO job (ACC_ID, SCENARIO_ID, STATE, ACQUIRED_BY) VALUES (1,2,0,'')");
+            batch.add("INSERT INTO job (ACC_ID, SCENARIO_ID, STATE, ACQUIRED_BY) VALUES (2,1,0,'')");
+            batch.add("INSERT INTO job (ACC_ID, SCENARIO_ID, STATE, ACQUIRED_BY) VALUES (2,2,0,'')");
+            batch.add("INSERT INTO job (ACC_ID, SCENARIO_ID, STATE, ACQUIRED_BY) VALUES (3,1,0,'')");
+            batch.add("INSERT INTO job (ACC_ID, SCENARIO_ID, STATE, ACQUIRED_BY) VALUES (3,2,0,'')");
             connection.batch(batch, initialSendDevices);
             connection.close();
         };
@@ -124,9 +127,9 @@ public class MyFirstVerticle extends AbstractVerticle {
             SQLConnection connection = connectionResult.result();
             String query = "update job set state = 2 where " +
                     "state = 1 and ACC_ID = ? and SCENARIO_ID = ?";
-            JsonArray completeParams = new JsonArray().add(params.getValue("ACC_ID")).add(params.getValue("SCENARIO_ID"));
+            JsonArray completeParams = new JsonArray().add(params.getValue(ACC_ID)).add(params.getValue(SCENARIO_ID));
             connection.updateWithParams(query, completeParams,
-                ignored -> eb.publish("device.free", deviceName)
+                ignored -> eb.publish(QUEUE_DEVICE_FREE_NAME, deviceName)
             );
             connection.close();
         };
@@ -138,7 +141,7 @@ public class MyFirstVerticle extends AbstractVerticle {
         Handler<Future<Object>> instructionHandler = f -> {
             Logger logger = new DeviceLogger(random.nextInt(), deviceName, System.out);
             try {
-                logger.log("start to execute: ");
+                logger.log("start to execute job with params " + params );
                 for (String s : instructions.get(0).split(" ")) {
                     logger.log(s);
                 }
