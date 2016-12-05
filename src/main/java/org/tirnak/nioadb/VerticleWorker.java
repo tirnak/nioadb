@@ -3,7 +3,10 @@ package org.tirnak.nioadb;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.EventBus;
-import io.vertx.core.json.JsonObject;
+import org.tirnak.nioadb.messaging.JobMessage;
+import org.tirnak.nioadb.messaging.JobMessageCodec;
+import org.tirnak.nioadb.messaging.JobResultMessage;
+import org.tirnak.nioadb.messaging.JobResultMessageCodec;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -11,48 +14,57 @@ import java.io.InputStreamReader;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static org.tirnak.nioadb.messaging.DeliveryConstants.*;
+
 public class VerticleWorker extends AbstractVerticle {
 
     private Vertx vertx = Vertx.vertx();
     private EventBus eb = vertx.eventBus();
     private List<Job> jobs = new CopyOnWriteArrayList<>();
+    {
+        eb.registerDefaultCodec(JobMessage.class, new JobMessageCodec());
+        eb.registerDefaultCodec(JobResultMessage.class, new JobResultMessageCodec());
+    }
 
     public void start() {
         System.out.println("verticle worker has started");
-        eb.consumer("job", message -> {
-            String messageBody = (String) message.body();
-            System.out.println(messageBody);
-            JsonObject jobParams = new JsonObject(messageBody);
-            System.out.println(jobParams);
-            ProcessBuilder pb = new ProcessBuilder(jobParams.getString("instruction").split(" "));
+        eb.consumer(JOB_MESSAGE_QUEUE_NAME, message -> {
+            JobMessage jobMessage = (JobMessage) message.body();
+            System.out.println(jobMessage);
+            ProcessBuilder pb = new ProcessBuilder(jobMessage.getCommand().split(" "));
             final Process blockingIO;
             try {
                 blockingIO = pb.start();
-                jobs.add(new Job(blockingIO, jobParams.getString("id")));
+                jobs.add(new Job(blockingIO, jobMessage.getId()));
             } catch (IOException e) {
                 e.printStackTrace();
             }
-
             vertx.runOnContext(ignored -> {
-
+                iterateJobs();
             });
         });
 
+        eb.consumer(JOB_RESULT_MESSAGE_QUEUE_NAME, message -> {
+            System.out.println(message.body().toString() + " finished");
+        });
 
-
-
+        for (String s : new String[]{"sleep 10","sleep 10","sleep 10","sleep 10","sleep 10"}) {
+            eb.publish(JOB_MESSAGE_QUEUE_NAME, new JobMessage(s));
+        }
     }
 
     private void iterateJobs() {
         boolean needToRepeat = false;
-        for (Job job : jobs) {
-            if (job.stillRunning()) {
-                needToRepeat = true;
-            } else {
-                eb.publish("job.done", new JobMessage(
-                    "", job.id, job.getOutput())
-                );
-                //TODO write messaging inmplementations
+        synchronized (jobs) {
+            for (Job job : jobs) {
+                if (job.stillRunning()) {
+                    needToRepeat = true;
+                } else {
+                    eb.publish(JOB_RESULT_MESSAGE_QUEUE_NAME, new JobResultMessage(
+                            job.getId(), job.getOutput(), job.getStatus()
+                    ));
+                    jobs.remove(job);
+                }
             }
         }
         if (needToRepeat) {
@@ -105,6 +117,8 @@ public class VerticleWorker extends AbstractVerticle {
             }
         }
 
-
+        public String getId() {
+            return id;
+        }
     }
 }

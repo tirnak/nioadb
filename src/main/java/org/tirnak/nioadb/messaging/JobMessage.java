@@ -1,4 +1,4 @@
-package org.tirnak.nioadb;
+package org.tirnak.nioadb.messaging;
 
 import java.util.Random;
 
@@ -7,19 +7,15 @@ public class JobMessage {
     private static Random random = new Random();
     private String command;
     private String id;
-    private String stdout;
-    private int exitStatus;
 
     public JobMessage(String command) {
         id = getRandomHexString(10);
         this.command = command;
-        this.stdout = "";
     }
 
-    public JobMessage(String command, String id, String result) {
+    public JobMessage(String command, String id) {
         this.command = command;
         this.id = id;
-        this.stdout = result;
     }
 
     private String getRandomHexString(int numchars) {
@@ -39,7 +35,11 @@ public class JobMessage {
         return id;
     }
 
-    public String getStdout() {
-        return stdout;
+    @Override
+    public String toString() {
+        return "JobMessage{" +
+                "command='" + command + '\'' +
+                ", id='" + id + '\'' +
+                '}';
     }
 }

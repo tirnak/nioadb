@@ -1,19 +1,17 @@
-package org.tirnak.nioadb;
+package org.tirnak.nioadb.messaging;
 
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.MessageCodec;
 import io.vertx.core.json.JsonObject;
 
-public class JobMessageCodec implements MessageCodec<JobMessage, JobMessage>{
+public class JobResultMessageCodec implements MessageCodec<JobResultMessage, JobResultMessage>{
 
     @Override
-    public void encodeToWire(Buffer buffer, JobMessage jobMessage
-    ) {
-        // Easiest ways is using JSON object
+    public void encodeToWire(Buffer buffer, JobResultMessage jobResultMessage) {
         JsonObject jsonToEncode = new JsonObject();
-        jsonToEncode.put("command", jobMessage.getCommand());
-        jsonToEncode.put("id", jobMessage.getId());
-        jsonToEncode.put("result", jobMessage.getStdout());
+        jsonToEncode.put("id", jobResultMessage.getId());
+        jsonToEncode.put("stdout", jobResultMessage.getStdout());
+        jsonToEncode.put("exitStatus", jobResultMessage.getExitStatus());
 
         // Encode object to string
         String jsonToStr = jsonToEncode.encode();
@@ -27,7 +25,7 @@ public class JobMessageCodec implements MessageCodec<JobMessage, JobMessage>{
     }
 
     @Override
-    public JobMessage decodeFromWire(int position, Buffer buffer) {
+    public JobResultMessage decodeFromWire(int position, Buffer buffer) {
         // My custom message starting from this *position* of buffer
         int _pos = position;
 
@@ -40,16 +38,16 @@ public class JobMessageCodec implements MessageCodec<JobMessage, JobMessage>{
         JsonObject contentJson = new JsonObject(jsonStr);
 
         // Get fields
-        String command = contentJson.getString("command");
         String id = contentJson.getString("id");
-        String result = contentJson.getString("result");
+        String stdout = contentJson.getString("stdout");
+        int exitStatus = contentJson.getInteger("exitStatus");
 
         // We can finally create custom message object
-        return new JobMessage(command, id, result);
+        return new JobResultMessage(id, stdout, exitStatus);
     }
 
     @Override
-    public JobMessage transform(JobMessage customMessage) {
+    public JobResultMessage transform(JobResultMessage customMessage) {
         // If a message is sent *locally* across the event bus.
         // This example sends message just as is
         return customMessage;

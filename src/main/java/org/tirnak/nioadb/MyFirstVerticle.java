@@ -1,30 +1,32 @@
 package org.tirnak.nioadb;
 
 import io.vertx.core.*;
-import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.eventbus.EventBus;
-import io.vertx.core.file.AsyncFile;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.jdbc.JDBCClient;
 import io.vertx.ext.sql.ResultSet;
 import io.vertx.ext.sql.SQLConnection;
+import org.tirnak.nioadb.messaging.JobMessageCodec;
 
 import java.io.IOException;
 import java.io.PrintStream;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
+
+import static org.tirnak.nioadb.messaging.DeliveryConstants.QUEUE_DEVICE_FREE_NAME;
 
 
 public class MyFirstVerticle extends AbstractVerticle {
 
-    public static final String QUEUE_DEVICE_FREE_NAME = "device.free";
     public static final String ACC_ID = "ACC_ID";
     public static final String SCENARIO_ID = "SCENARIO_ID";
     private Vertx vertx = Vertx.vertx();
     private EventBus eb = vertx.eventBus();
     private Random random = new Random();
     private JDBCClient jdbc;
-    private static DeliveryOptions JOB_MESSAGE_OPTIONS = new DeliveryOptions().setCodecName(new JobMessageCodec().name());
     {
         JsonObject config = new JsonObject().put("url", "jdbc:hsqldb:mem:test?shutdown=true")
                 .put("driver_class", "org.hsqldb.jdbcDriver");
