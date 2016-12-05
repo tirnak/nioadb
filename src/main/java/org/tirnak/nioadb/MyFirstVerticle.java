@@ -1,6 +1,7 @@
 package org.tirnak.nioadb;
 
 import io.vertx.core.*;
+import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.file.AsyncFile;
 import io.vertx.core.json.JsonArray;
@@ -23,10 +24,12 @@ public class MyFirstVerticle extends AbstractVerticle {
     private EventBus eb = vertx.eventBus();
     private Random random = new Random();
     private JDBCClient jdbc;
+    private static DeliveryOptions JOB_MESSAGE_OPTIONS = new DeliveryOptions().setCodecName(new JobMessageCodec().name());
     {
         JsonObject config = new JsonObject().put("url", "jdbc:hsqldb:mem:test?shutdown=true")
                 .put("driver_class", "org.hsqldb.jdbcDriver");
         jdbc = JDBCClient.createNonShared(vertx, config);
+        eb.registerCodec(new JobMessageCodec());
     }
 
     public void start(Future<Void> fut) throws IOException, InterruptedException {
@@ -190,4 +193,6 @@ public class MyFirstVerticle extends AbstractVerticle {
             ps.println(id + ": " + s);
         }
     }
+
+
 }
